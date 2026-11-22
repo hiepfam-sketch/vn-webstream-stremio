@@ -77,23 +77,23 @@ def _build_manifest() -> dict[str, Any]:
         for sid, s in cfg.get("sources", {}).items()
         if s.get("enabled")
     ]
-    genre_options = list(GENRE_MAP.keys())
+    genre_options = [g for g in GENRE_MAP.keys() if g != "Hoạt Hình"]
     return {
         "id": "vn.webstream.multisource",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "name": addon_name,
         "description": (
-            f"Xem phim trực tiếp HTTP HLS trên Stremio tổng hợp từ {len(enabled_names)} nguồn "
-            f"({', '.join(enabled_names)}) — tự động lọc phim trùng lặp và gộp nhiều server phát."
+            f"Phim Trung Quốc & Hàn Quốc phát trực tiếp HTTP HLS trên Stremio/Nuvio từ {len(enabled_names)} nguồn "
+            f"({', '.join(enabled_names)}) — lọc trùng lặp, bỏ hoạt hình, sắp xếp mới nhất theo năm phát hành."
         ),
         "types": ["movie", "series"],
         "resources": ["catalog", "meta", "stream"],
         "idPrefixes": ["vn:", "motchill:"],
         "catalogs": [
             {
-                "type": "movie",
-                "id": "vn-le",
-                "name": "VN Stream • Phim Lẻ",
+                "type": "series",
+                "id": "vn-trung-quoc",
+                "name": "VN Stream • Phim Trung Quốc",
                 "extra": [
                     {"name": "search", "isRequired": False},
                     {"name": "genre", "isRequired": False, "options": genre_options},
@@ -102,20 +102,11 @@ def _build_manifest() -> dict[str, Any]:
             },
             {
                 "type": "series",
-                "id": "vn-bo",
-                "name": "VN Stream • Phim Bộ",
+                "id": "vn-han-quoc",
+                "name": "VN Stream • Phim Hàn Quốc",
                 "extra": [
                     {"name": "search", "isRequired": False},
                     {"name": "genre", "isRequired": False, "options": genre_options},
-                    {"name": "skip", "isRequired": False},
-                ],
-            },
-            {
-                "type": "series",
-                "id": "vn-hoat-hinh",
-                "name": "VN Stream • Hoạt Hình",
-                "extra": [
-                    {"name": "search", "isRequired": False},
                     {"name": "skip", "isRequired": False},
                 ],
             },
