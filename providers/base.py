@@ -22,6 +22,7 @@ class CatalogItem:
     source_id: str = ""
     origin_name: str = ""
     year: str = ""
+    publish_ts: int = 0
     poster: str | None = None
     description: str | None = None
     release_info: str | None = None

@@ -172,18 +172,18 @@ class KKPhimApiProvider:
 
         country_slug = KK_COUNTRY_FILTER.get(catalog_id)
         if search:
-            path = f"/v1/api/tim-kiem?keyword={quote_plus(search.strip())}&limit=24&sort_field=year&sort_type=desc"
+            path = f"/v1/api/tim-kiem?keyword={quote_plus(search.strip())}&limit=24&sort_field=_id&sort_type=desc"
             if country_slug:
                 path += f"&country={country_slug}"
             if page > 1:
                 path += f"&page={page}"
         elif genre and genre in KK_GENRE_SLUG:
-            path = f"/v1/api/the-loai/{KK_GENRE_SLUG[genre]}?page={page}&limit=24&sort_field=year&sort_type=desc"
+            path = f"/v1/api/the-loai/{KK_GENRE_SLUG[genre]}?page={page}&limit=24&sort_field=_id&sort_type=desc"
             if country_slug:
                 path += f"&country={country_slug}"
         else:
             ep = KK_CATALOG_MAP.get(catalog_id, "/v1/api/quoc-gia/trung-quoc")
-            path = f"{ep}?page={page}&limit=24&sort_field=year&sort_type=desc"
+            path = f"{ep}?page={page}&limit=24&sort_field=_id&sort_type=desc"
 
         try:
             data, _ = await self._fetch_json(path)
@@ -225,6 +225,15 @@ class KKPhimApiProvider:
             lang = (it.get("lang") or "").strip()
             poster = _abs_img(it.get("poster_url") or it.get("thumb_url"), img_cdn)
 
+            # Lấy timestamp đăng phim từ 8 ký tự hex đầu của MongoDB _id (thời điểm tạo bản ghi)
+            publish_ts = 0
+            raw_oid = str(it.get("_id") or "").strip()
+            if len(raw_oid) >= 8:
+                try:
+                    publish_ts = int(raw_oid[:8], 16)
+                except ValueError:
+                    publish_ts = 0
+
             item_type = content_type
             desc_parts = [p for p in [origin, year, ep_cur, lang] if p]
             results.append(
@@ -236,6 +245,7 @@ class KKPhimApiProvider:
                     source_id=self.source_id,
                     origin_name=origin,
                     year=year,
+                    publish_ts=publish_ts,
                     poster=poster,
                     description=" • ".join(desc_parts) if desc_parts else None,
                     release_info=year or ep_cur or None,
