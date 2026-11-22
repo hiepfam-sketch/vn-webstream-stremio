@@ -80,7 +80,7 @@ def _build_manifest() -> dict[str, Any]:
     genre_options = list(GENRE_MAP.keys())
     return {
         "id": "vn.webstream.multisource",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "name": addon_name,
         "description": (
             f"Xem phim trực tiếp HTTP HLS trên Stremio tổng hợp từ {len(enabled_names)} nguồn "
@@ -112,25 +112,10 @@ def _build_manifest() -> dict[str, Any]:
             },
             {
                 "type": "series",
-                "id": "vn-moi",
-                "name": "VN Stream • Mới Cập Nhật",
-                "extra": [
-                    {"name": "skip", "isRequired": False},
-                ],
-            },
-            {
-                "type": "series",
                 "id": "vn-hoat-hinh",
                 "name": "VN Stream • Hoạt Hình",
                 "extra": [
-                    {"name": "skip", "isRequired": False},
-                ],
-            },
-            {
-                "type": "series",
-                "id": "vn-thuyet-minh",
-                "name": "VN Stream • Thuyết Minh",
-                "extra": [
+                    {"name": "search", "isRequired": False},
                     {"name": "skip", "isRequired": False},
                 ],
             },
