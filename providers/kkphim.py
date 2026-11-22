@@ -20,11 +20,15 @@ DEFAULT_HEADERS = {
 }
 
 KK_CATALOG_MAP: dict[str, str] = {
+    "vn-trung-quoc": "/v1/api/quoc-gia/trung-quoc",
+    "vn-han-quoc": "/v1/api/quoc-gia/han-quoc",
     "vn-le": "/v1/api/danh-sach/phim-le",
     "vn-bo": "/v1/api/danh-sach/phim-bo",
-    "vn-hoat-hinh": "/v1/api/danh-sach/hoat-hinh",
-    "vn-moi": "/danh-sach/phim-moi-cap-nhat",
-    "vn-thuyet-minh": "/v1/api/danh-sach/phim-bo",
+}
+
+KK_COUNTRY_FILTER: dict[str, str] = {
+    "vn-trung-quoc": "trung-quoc",
+    "vn-han-quoc": "han-quoc",
 }
 
 KK_GENRE_SLUG: dict[str, str] = {
@@ -166,15 +170,20 @@ class KKPhimApiProvider:
         if cache_key in self._catalog_cache:
             return self._catalog_cache[cache_key]
 
+        country_slug = KK_COUNTRY_FILTER.get(catalog_id)
         if search:
-            path = f"/v1/api/tim-kiem?keyword={quote_plus(search.strip())}&limit=20"
+            path = f"/v1/api/tim-kiem?keyword={quote_plus(search.strip())}&limit=24&sort_field=year&sort_type=desc"
+            if country_slug:
+                path += f"&country={country_slug}"
             if page > 1:
                 path += f"&page={page}"
         elif genre and genre in KK_GENRE_SLUG:
-            path = f"/v1/api/the-loai/{KK_GENRE_SLUG[genre]}?page={page}&limit=20"
+            path = f"/v1/api/the-loai/{KK_GENRE_SLUG[genre]}?page={page}&limit=24&sort_field=year&sort_type=desc"
+            if country_slug:
+                path += f"&country={country_slug}"
         else:
-            ep = KK_CATALOG_MAP.get(catalog_id, "/danh-sach/phim-moi-cap-nhat")
-            path = f"{ep}?page={page}" + ("&limit=20" if "/v1/api/" in ep else "")
+            ep = KK_CATALOG_MAP.get(catalog_id, "/v1/api/quoc-gia/trung-quoc")
+            path = f"{ep}?page={page}&limit=24&sort_field=year&sort_type=desc"
 
         try:
             data, _ = await self._fetch_json(path)
@@ -195,20 +204,29 @@ class KKPhimApiProvider:
             name = (it.get("name") or "").strip()
             if not slug or not name:
                 continue
+            raw_type = (it.get("type") or "").lower()
+            cats = [
+                (c.get("slug") or "").lower()
+                for c in (it.get("category") or [])
+                if isinstance(c, dict)
+            ]
+            # Bỏ hoàn toàn phim hoạt hình
+            if raw_type == "hoathinh" or "hoat-hinh" in cats:
+                continue
+            # Lọc đúng quốc gia Trung Quốc / Hàn Quốc nếu có metadata country
+            if country_slug and isinstance(it.get("country"), list) and it["country"]:
+                c_slugs = [(c.get("slug") or "").lower() for c in it["country"] if isinstance(c, dict)]
+                if c_slugs and country_slug not in c_slugs:
+                    continue
+
             origin = (it.get("origin_name") or "").strip()
             year = str(it.get("year") or "").strip()
             ep_cur = (it.get("episode_current") or "").strip()
             lang = (it.get("lang") or "").strip()
             poster = _abs_img(it.get("poster_url") or it.get("thumb_url"), img_cdn)
 
-            raw_type = (it.get("type") or "").lower()
-            item_type = "movie" if raw_type == "single" else ("series" if raw_type in ("series", "hoathinh", "tvshows") else content_type)
-            if catalog_id == "vn-le":
-                item_type = "movie"
-            elif catalog_id == "vn-bo":
-                item_type = "series"
-
-            desc_parts = [p for p in [origin, ep_cur, lang] if p]
+            item_type = content_type
+            desc_parts = [p for p in [origin, year, ep_cur, lang] if p]
             results.append(
                 CatalogItem(
                     id=f"vn:{self.source_id}:{slug}",

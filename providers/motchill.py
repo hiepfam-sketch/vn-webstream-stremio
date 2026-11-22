@@ -42,16 +42,15 @@ GENRE_MAP: dict[str, str] = {
     "Chính Kịch": "chinh-kich",
     "Bí Ẩn": "bi-an",
     "Học Đường": "hoc-duong",
-    "Hoạt Hình": "hoat-hinh",
     "TV Shows": "tv-shows",
 }
 
 CATALOG_PATH_MAP: dict[str, str] = {
+    "vn-trung-quoc": "/quoc-gia/trung-quoc",
+    "vn-han-quoc": "/quoc-gia/han-quoc",
     "vn-moi": "/danh-sach/phim-moi",
     "vn-bo": "/danh-sach/phim-bo",
     "vn-le": "/danh-sach/phim-le",
-    "vn-hoat-hinh": "/the-loai/hoat-hinh",
-    "vn-thuyet-minh": "/danh-sach/phim-thuyet-minh",
 }
 
 
@@ -337,11 +336,10 @@ class MotchillProvider:
                 html, used_base = await self._fetch_html(path)
                 items = self._parse_cards(html, used_base, default_type=content_type, filter_type=content_type)
             else:
-                base_path = CATALOG_PATH_MAP.get(catalog_id, "/danh-sach/phim-moi")
+                base_path = CATALOG_PATH_MAP.get(catalog_id, "/quoc-gia/trung-quoc")
                 path = f"{base_path}?page={page}" if page > 1 else base_path
                 html, used_base = await self._fetch_html(path)
-                ft = content_type if catalog_id in ("vn-le", "vn-bo") else None
-                items = self._parse_cards(html, used_base, default_type=content_type, filter_type=ft)
+                items = self._parse_cards(html, used_base, default_type=content_type, filter_type=content_type)
         except Exception:
             return []
 

@@ -138,9 +138,22 @@ class SourceAggregator:
                         if not cur.year and item.year:
                             cur.year = item.year
 
+        def _item_year(it: CatalogItem) -> int:
+            for txt in (it.year, it.release_info or "", it.description or ""):
+                m = re.search(r"\b(19|20)\d{2}\b", txt)
+                if m:
+                    return int(m.group(0))
+            return 0
+
+        # Sắp xếp theo năm phát hành giảm dần (mới nhất trước), giữ nguyên thứ tự cập nhật mới nhất trong cùng năm
+        ranked_keys = sorted(
+            enumerate(ordered_keys),
+            key=lambda pair: (-_item_year(dedup_map[pair[1]]), pair[0]),
+        )
+
         metas: list[dict[str, Any]] = []
         sources_cfg = config_store.get_sources()
-        for key in ordered_keys:
+        for _, key in ranked_keys:
             item = dedup_map[key]
             item.type = content_type
             src_names = [
