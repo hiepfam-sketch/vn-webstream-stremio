@@ -320,12 +320,15 @@ class MotchillProvider:
         try:
             if search:
                 q = quote_plus(search.strip())
-                # Thử /?search= trước (motchillv), nếu rỗng thử /?s= (motchillti WordPress)
-                for sp in (f"/?search={q}" + (f"&page={page}" if page > 1 else ""), f"/?s={q}" + (f"&paged={page}" if page > 1 else "")):
-                    html, used_base = await self._fetch_html(sp)
+                # Thử /?search= trước cho layout myui (motchillv); nếu trang là WordPress (không có myui-vodlist__box) thì dùng /?s= (motchillti)
+                sp_myui = f"/?search={q}" + (f"&page={page}" if page > 1 else "")
+                html, used_base = await self._fetch_html(sp_myui)
+                if "myui-vodlist__box" in html:
                     items = self._parse_cards(html, used_base, default_type=content_type)
-                    if items:
-                        break
+                else:
+                    sp_wp = f"/?s={q}" + (f"&paged={page}" if page > 1 else "")
+                    html_wp, used_base_wp = await self._fetch_html(sp_wp)
+                    items = self._parse_cards(html_wp, used_base_wp, default_type=content_type)
             elif genre and genre in GENRE_MAP:
                 path = f"/the-loai/{GENRE_MAP[genre]}" + (f"?page={page}" if page > 1 else "")
                 html, used_base = await self._fetch_html(path)
@@ -447,9 +450,14 @@ class MotchillProvider:
 
         if content_type == "series" or len(episodes) > 1:
             videos = []
+            seen_ep_nums: set[int] = set()
             for idx, (ep_slug, ep_label) in enumerate(episodes, start=1):
                 m_num = re.search(r"(\d+)", ep_label or ep_slug)
                 ep_num = int(m_num.group(1)) if m_num else idx
+                # Loại trừ tập trùng lặp khi web tách nhiều server thành tap-1-sv-0, tap-1-sv-1...
+                if m_num and ep_num in seen_ep_nums:
+                    continue
+                seen_ep_nums.add(ep_num)
                 clean_title = (
                     f"Tập {ep_label}"
                     if ep_label.isdigit()
