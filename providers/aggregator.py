@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+import asyncio
+import re
+import unicodedata
+from typing import Any
+
+import httpx
+
+from config_store import config_store
+from providers.base import CatalogItem, StreamServer
+from providers.kkphim import KKPhimApiProvider
+from providers.motchill import MotchillProvider
+
+
+def normalize_title(text: str) -> str:
+    """Chuẩn hóa tên phim để phát hiện và loại trừ phim trùng lặp giữa các nguồn."""
+    if not text:
+        return ""
+    s = text.strip().lower().replace("đ", "d")
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    # Bỏ các hậu tố phổ biến như (vietsub), (thuyet minh), (2026), [hd]...
+    s = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", s)
+    s = re.sub(r"\b(vietsub|thuyet\s*minh|long\s*tieng|full|hd|fhd|4k|cam)\b", " ", s)
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _extract_ep_num(ep_slug: str | None) -> int | None:
+    if not ep_slug:
+        return None
+    if "full" in ep_slug.lower():
+        return None
+    m = re.search(r"(\d+)", ep_slug)
+    return int(m.group(1)) if m else None
+
+
+class SourceAggregator:
+    """Điều phối đa nguồn (KKPhim, OPhim, MotchillV, MotchillTi), lọc trùng lặp & gộp stream."""
+
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self.client = client
+        self.providers: dict[str, KKPhimApiProvider | MotchillProvider] = {}
+        self._sync_providers()
+
+    def _sync_providers(self) -> None:
+        sources = config_store.get_sources()
+        for sid, scfg in sources.items():
+            ptype = scfg.get("type", "motchill")
+            existing = self.providers.get(sid)
+            if ptype == "kkphim_api":
+                if not isinstance(existing, KKPhimApiProvider):
+                    self.providers[sid] = KKPhimApiProvider(sid, self.client)
+            else:
+                if not isinstance(existing, MotchillProvider):
+                    self.providers[sid] = MotchillProvider(sid, self.client)
+        # Bỏ provider không còn trong config
+        for sid in list(self.providers.keys()):
+            if sid not in sources:
+                del self.providers[sid]
+
+    def clear_cache(self) -> None:
+        self._sync_providers()
+        for p in self.providers.values():
+            p.clear_cache()
+
+    def active_providers(self) -> list[KKPhimApiProvider | MotchillProvider]:
+        self._sync_providers()
+        return [p for p in self.providers.values() if p.enabled]
+
+    async def check_source(self, source_id: str, url: str) -> dict[str, Any]:
+        self._sync_providers()
+        prov = self.providers.get(source_id)
+        if not prov:
+            # Mặc định thử theo kiểu motchill
+            prov = MotchillProvider(source_id, self.client)
+        return await prov.check_connection(url)
+
+    async def get_catalog(
+        self,
+        catalog_id: str,
+        content_type: str,
+        *,
+        search: str | None = None,
+        genre: str | None = None,
+        skip: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Lấy danh mục/tìm kiếm song song từ tất cả các nguồn đang bật và loại trừ phim trùng lặp."""
+        provs = self.active_providers()
+        if not provs:
+            return []
+
+        tasks = [
+            p.get_catalog_items(catalog_id, content_type, search=search, genre=genre, skip=skip)
+            for p in provs
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Gộp xen kẽ (round-robin) để mỗi nguồn đều xuất hiện cân bằng, đồng thời loại trùng lặp
+        lists: list[list[CatalogItem]] = [r for r in results if isinstance(r, list) and r]
+        if not lists:
+            return []
+
+        dedup_map: dict[str, CatalogItem] = {}
+        dedup_sources: dict[str, list[str]] = {}
+        ordered_keys: list[str] = []
+
+        max_len = max(len(lst) for lst in lists)
+        for idx in range(max_len):
+            for lst in lists:
+                if idx >= len(lst):
+                    continue
+                item = lst[idx]
+                key = normalize_title(item.name) or normalize_title(item.origin_name) or item.slug
+                if not key:
+                    continue
+
+                if key not in dedup_map:
+                    dedup_map[key] = item
+                    dedup_sources[key] = [item.source_id]
+                    ordered_keys.append(key)
+                else:
+                    # Đã tồn tại -> ghi nhận thêm nguồn, ưu tiên poster/mô tả tốt hơn
+                    if item.source_id not in dedup_sources[key]:
+                        dedup_sources[key].append(item.source_id)
+                    cur = dedup_map[key]
+                    if not cur.poster and item.poster:
+                        cur.poster = item.poster
+                    if not cur.year and item.year:
+                        cur.year = item.year
+
+        metas: list[dict[str, Any]] = []
+        sources_cfg = config_store.get_sources()
+        for key in ordered_keys:
+            item = dedup_map[key]
+            item.type = content_type
+            src_names = [
+                sources_cfg.get(sid, {}).get("name", sid) for sid in dedup_sources[key]
+            ]
+            src_badge = f"Nguồn: {', '.join(src_names)}"
+            if item.description:
+                item.description = f"{item.description} • {src_badge}"
+            else:
+                item.description = src_badge
+            metas.append(item.to_stremio())
+
+        return metas
+
+    def _parse_id(self, item_id: str) -> tuple[str, str, str | None]:
+        """Phân tách ID dạng vn:<source>:<slug>[:<ep_slug>] hoặc motchill:<slug>[:<ep_slug>]."""
+        if item_id.startswith("vn:"):
+            parts = item_id.split(":")
+            source_id = parts[1] if len(parts) > 1 else "kkphim"
+            slug = parts[2] if len(parts) > 2 else ""
+            ep_slug = parts[3] if len(parts) > 3 else None
+            return source_id, slug, ep_slug
+        if item_id.startswith("motchill:"):
+            parts = item_id.split(":")
+            slug = parts[1] if len(parts) > 1 else ""
+            ep_slug = parts[2] if len(parts) > 2 else None
+            return "motchillv", slug, ep_slug
+        return "", "", None
+
+    async def get_meta(self, content_type: str, item_id: str) -> dict[str, Any] | None:
+        self._sync_providers()
+        source_id, slug, _ = self._parse_id(item_id)
+        if not slug:
+            return None
+
+        primary = self.providers.get(source_id)
+        if primary and primary.enabled:
+            meta = await primary.get_meta(content_type, slug)
+            if meta:
+                meta["id"] = item_id.split(":")[0] + ":" + source_id + ":" + slug if item_id.startswith("vn:") else item_id
+                return meta
+
+        # Fallback sang các nguồn khác nếu nguồn chính không phản hồi
+        for sid, prov in self.providers.items():
+            if sid == source_id or not prov.enabled:
+                continue
+            meta = await prov.get_meta(content_type, slug)
+            if meta:
+                return meta
+        return None
+
+    async def get_all_watch_servers(self, item_id: str) -> list[StreamServer]:
+        """Tổng hợp song song server phát từ TẤT CẢ các nguồn đang bật cho cùng 1 phim/tập và loại bỏ link trùng."""
+        self._sync_providers()
+        source_id, slug, ep_slug = self._parse_id(item_id)
+        if not slug:
+            return []
+
+        ep_num = _extract_ep_num(ep_slug)
+        provs = self.active_providers()
+        if not provs:
+            return []
+
+        tasks = []
+        for prov in provs:
+            # Nguồn chính dùng đúng ep_slug; các nguồn phụ khớp theo cùng slug + số tập ep_num
+            use_ep_slug = ep_slug if prov.source_id == source_id else None
+            tasks.append(prov.get_streams_for_slug(slug, ep_slug=use_ep_slug, ep_num=ep_num))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        merged: list[StreamServer] = []
+        seen_links: set[str] = set()
+        for res in results:
+            if not isinstance(res, list):
+                continue
+            for sv in res:
+                norm_link = sv.link.strip()
+                if not norm_link or norm_link in seen_links:
+                    continue
+                seen_links.add(norm_link)
+                merged.append(sv)
+        return merged
