@@ -1,0 +1,42 @@
+{
+  "addon_name": "VN WebStream (Multi-Source)",
+  "host": "127.0.0.1",
+  "port": 7000,
+  "public_base_url": "",
+  "remote_config_url": "",
+  "request_timeout": 18,
+  "cache_ttl_seconds": 300,
+  "sources": {
+    "kkphim": {
+      "enabled": true,
+      "type": "kkphim_api",
+      "name": "KKPhim",
+      "base_url": "https://phimapi.com",
+      "fallback_urls": []
+    },
+    "ophim": {
+      "enabled": true,
+      "type": "kkphim_api",
+      "name": "OPhim",
+      "base_url": "https://ophim1.com",
+      "fallback_urls": []
+    },
+    "motchillv": {
+      "enabled": true,
+      "type": "motchill",
+      "name": "MotchillV",
+      "base_url": "https://motchillv.online",
+      "fallback_urls": [
+        "https://motchillv.org",
+        "https://motchillv.you"
+      ]
+    },
+    "motchillti": {
+      "enabled": true,
+      "type": "motchill",
+      "name": "MotchillTi",
+      "base_url": "https://motchillti.mx",
+      "fallback_urls": []
+    }
+  }
+}
