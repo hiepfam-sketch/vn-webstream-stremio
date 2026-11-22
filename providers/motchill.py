@@ -249,9 +249,12 @@ class MotchillProvider:
                 )
             )
 
-        # Layout 2: WordPress li.item (motchillti.mx)
+        # Layout 2: WordPress li.item (motchillti.mx) — ưu tiên vùng danh sách chính để không lấy nhầm sidebar
         if not items:
-            for li in soup.select("li.item"):
+            wp_list = soup.select(".list-films li.item, .film-list li.item, #content li.item, main li.item")
+            if not wp_list:
+                wp_list = soup.select("li.item")
+            for li in wp_list:
                 a = li.select_one("a[href*='/phim/']")
                 if not a:
                     continue

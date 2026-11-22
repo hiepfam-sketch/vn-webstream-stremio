@@ -121,14 +121,22 @@ class SourceAggregator:
                     dedup_sources[key] = [item.source_id]
                     ordered_keys.append(key)
                 else:
-                    # Đã tồn tại -> ghi nhận thêm nguồn, ưu tiên poster/mô tả tốt hơn
+                    # Đã tồn tại -> ghi nhận thêm nguồn
                     if item.source_id not in dedup_sources[key]:
                         dedup_sources[key].append(item.source_id)
                     cur = dedup_map[key]
-                    if not cur.poster and item.poster:
-                        cur.poster = item.poster
-                    if not cur.year and item.year:
-                        cur.year = item.year
+                    cur_info = f"{cur.release_info or ''} {cur.description or ''}".lower()
+                    new_info = f"{item.release_info or ''} {item.description or ''}".lower()
+                    # Nếu bản cũ là "Sắp chiếu/Trailer" còn bản mới đã có tập/Full -> ưu tiên bản mới làm nguồn chính!
+                    if any(k in cur_info for k in ("sắp chiếu", "sap chieu", "trailer")) and not any(
+                        k in new_info for k in ("sắp chiếu", "sap chieu", "trailer")
+                    ):
+                        dedup_map[key] = item
+                    else:
+                        if not cur.poster and item.poster:
+                            cur.poster = item.poster
+                        if not cur.year and item.year:
+                            cur.year = item.year
 
         metas: list[dict[str, Any]] = []
         sources_cfg = config_store.get_sources()
@@ -168,21 +176,39 @@ class SourceAggregator:
         if not slug:
             return None
 
+        primary_meta: dict[str, Any] | None = None
         primary = self.providers.get(source_id)
         if primary and primary.enabled:
-            meta = await primary.get_meta(content_type, slug)
-            if meta:
-                meta["id"] = item_id.split(":")[0] + ":" + source_id + ":" + slug if item_id.startswith("vn:") else item_id
-                return meta
+            primary_meta = await primary.get_meta(content_type, slug)
 
-        # Fallback sang các nguồn khác nếu nguồn chính không phản hồi
-        for sid, prov in self.providers.items():
-            if sid == source_id or not prov.enabled:
-                continue
-            meta = await prov.get_meta(content_type, slug)
-            if meta:
-                return meta
-        return None
+        # Nếu là phim bộ mà nguồn chính chưa có tập (vd: "Sắp chiếu") hoặc bị lỗi -> lấy bổ sung từ các nguồn khác!
+        need_fallback = primary_meta is None or (
+            content_type == "series" and not primary_meta.get("videos")
+        )
+        if need_fallback:
+            other_provs = [p for sid, p in self.providers.items() if sid != source_id and p.enabled]
+            if other_provs:
+                other_results = await asyncio.gather(
+                    *(p.get_meta(content_type, slug) for p in other_provs),
+                    return_exceptions=True,
+                )
+                best_other: dict[str, Any] | None = None
+                for res in other_results:
+                    if not isinstance(res, dict):
+                        continue
+                    if best_other is None or len(res.get("videos") or []) > len(best_other.get("videos") or []):
+                        best_other = res
+                if best_other:
+                    if primary_meta is None:
+                        primary_meta = best_other
+                    elif best_other.get("videos"):
+                        primary_meta["videos"] = best_other["videos"]
+                        if not primary_meta.get("poster") and best_other.get("poster"):
+                            primary_meta["poster"] = best_other["poster"]
+
+        if primary_meta:
+            primary_meta["id"] = item_id
+        return primary_meta
 
     async def get_all_watch_servers(self, item_id: str) -> list[StreamServer]:
         """Tổng hợp song song server phát từ TẤT CẢ các nguồn đang bật cho cùng 1 phim/tập và loại bỏ link trùng."""
