@@ -137,6 +137,8 @@ class SourceAggregator:
                             cur.poster = item.poster
                         if not cur.year and item.year:
                             cur.year = item.year
+                        if item.publish_ts > cur.publish_ts:
+                            cur.publish_ts = item.publish_ts
 
         def _item_year(it: CatalogItem) -> int:
             for txt in (it.year, it.release_info or "", it.description or ""):
@@ -145,10 +147,14 @@ class SourceAggregator:
                     return int(m.group(0))
             return 0
 
-        # Sắp xếp theo năm phát hành giảm dần (mới nhất trước), giữ nguyên thứ tự cập nhật mới nhất trong cùng năm
+        # Sắp xếp theo năm phát hành giảm dần; trong cùng năm giữ đúng thứ tự đăng phim mới nhất (publish_ts)
         ranked_keys = sorted(
             enumerate(ordered_keys),
-            key=lambda pair: (-_item_year(dedup_map[pair[1]]), pair[0]),
+            key=lambda pair: (
+                -_item_year(dedup_map[pair[1]]),
+                -dedup_map[pair[1]].publish_ts,
+                pair[0],
+            ),
         )
 
         metas: list[dict[str, Any]] = []
@@ -223,14 +229,28 @@ class SourceAggregator:
             primary_meta["id"] = item_id
         return primary_meta
 
-    async def get_all_watch_servers(self, item_id: str) -> list[StreamServer]:
+    async def get_all_watch_servers(
+        self,
+        item_id: str,
+        *,
+        content_type: str = "series",
+    ) -> list[StreamServer]:
         """Tổng hợp song song server phát từ TẤT CẢ các nguồn đang bật cho cùng 1 phim/tập và loại bỏ link trùng."""
         self._sync_providers()
-        source_id, slug, ep_slug = self._parse_id(item_id)
+
+        if item_id.startswith(("tt", "tmdb:")):
+            from providers.external_id import resolve_external_to_slug
+
+            slug, ep_num = await resolve_external_to_slug(self.client, content_type, item_id)
+            source_id = ""
+            ep_slug = None
+        else:
+            source_id, slug, ep_slug = self._parse_id(item_id)
+            ep_num = _extract_ep_num(ep_slug)
+
         if not slug:
             return []
 
-        ep_num = _extract_ep_num(ep_slug)
         provs = self.active_providers()
         if not provs:
             return []
