@@ -80,15 +80,27 @@ def _build_manifest() -> dict[str, Any]:
     genre_options = [g for g in GENRE_MAP.keys() if g != "Hoạt Hình"]
     return {
         "id": "vn.webstream.multisource",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "name": addon_name,
         "description": (
             f"Phim Trung Quốc & Hàn Quốc phát trực tiếp HTTP HLS trên Stremio/Nuvio từ {len(enabled_names)} nguồn "
-            f"({', '.join(enabled_names)}) — lọc trùng lặp, bỏ hoạt hình, sắp xếp mới nhất theo năm phát hành."
+            f"({', '.join(enabled_names)}) — lọc trùng, bỏ hoạt hình, hỗ trợ khớp IMDb (tt) & TMDB."
         ),
         "types": ["movie", "series"],
-        "resources": ["catalog", "meta", "stream"],
-        "idPrefixes": ["vn:", "motchill:"],
+        "resources": [
+            "catalog",
+            {
+                "name": "meta",
+                "types": ["movie", "series"],
+                "idPrefixes": ["vn:", "motchill:"],
+            },
+            {
+                "name": "stream",
+                "types": ["movie", "series"],
+                "idPrefixes": ["vn:", "motchill:", "tt", "tmdb:"],
+            },
+        ],
+        "idPrefixes": ["vn:", "motchill:", "tt", "tmdb:"],
         "catalogs": [
             {
                 "type": "series",
@@ -176,14 +188,15 @@ async def meta_endpoint(request: Request) -> JSONResponse:
 async def stream_endpoint(request: Request) -> JSONResponse:
     assert aggregator is not None and http_client is not None
     await config_store.sync_remote_if_due(http_client)
+    content_type = request.path_params["type"]
     item_id = unquote(request.path_params["id"].removesuffix(".json"))
 
-    if not item_id.startswith(("vn:", "motchill:")):
+    if not item_id.startswith(("vn:", "motchill:", "tt", "tmdb:")):
         return JSONResponse({"streams": []})
 
     addon_base = _get_addon_base(request)
     try:
-        servers = await aggregator.get_all_watch_servers(item_id)
+        servers = await aggregator.get_all_watch_servers(item_id, content_type=content_type)
         streams = await resolve_servers(http_client, servers, addon_base)
         return JSONResponse({"streams": streams})
     except Exception as exc:
