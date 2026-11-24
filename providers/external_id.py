@@ -254,3 +254,21 @@ async def resolve_external_to_slug(
             return best_slug, episode
 
     return "", episode
+
+
+async def resolve_external_to_tmdb(
+    client: httpx.AsyncClient,
+    content_type: str,
+    item_id: str,
+) -> tuple[str, int | None, int | None]:
+    """Chuyển đổi ID IMDb (tt...) hoặc TMDB (tmdb:...) sang (tmdb_id, season, episode)."""
+    kind, ext_id, season, episode = parse_external_id(item_id)
+    if not kind or not ext_id:
+        return "", None, None
+    if kind == "tmdb":
+        return ext_id, season, episode
+    if kind == "imdb":
+        meta = await _fetch_cinemeta(client, content_type, ext_id)
+        if meta and meta.get("moviedb_id"):
+            return str(meta["moviedb_id"]).strip(), season, episode
+    return "", season, episode

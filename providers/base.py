@@ -7,10 +7,11 @@ from typing import Any
 @dataclass
 class StreamServer:
     label: str
-    server_type: str  # "m3u8" or "embed"
+    server_type: str  # "m3u8", "embed", or "direct_file"
     link: str
     referer: str
     source_name: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
