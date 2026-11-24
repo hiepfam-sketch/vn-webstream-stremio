@@ -48,9 +48,12 @@ GENRE_MAP: dict[str, str] = {
 CATALOG_PATH_MAP: dict[str, str] = {
     "vn-trung-quoc": "/quoc-gia/trung-quoc",
     "vn-han-quoc": "/quoc-gia/han-quoc",
+    "vn-au-my": "/quoc-gia/au-my",
     "vn-moi": "/danh-sach/phim-moi",
     "vn-bo": "/danh-sach/phim-bo",
     "vn-le": "/danh-sach/phim-le",
+    "vn-chieu-rap": "/danh-sach/phim-chieu-rap",
+    "vn-thuyet-minh": "/danh-sach/phim-thuyet-minh",
 }
 
 

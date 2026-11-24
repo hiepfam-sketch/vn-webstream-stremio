@@ -22,13 +22,18 @@ DEFAULT_HEADERS = {
 KK_CATALOG_MAP: dict[str, str] = {
     "vn-trung-quoc": "/v1/api/quoc-gia/trung-quoc",
     "vn-han-quoc": "/v1/api/quoc-gia/han-quoc",
+    "vn-au-my": "/v1/api/quoc-gia/au-my",
     "vn-le": "/v1/api/danh-sach/phim-le",
     "vn-bo": "/v1/api/danh-sach/phim-bo",
+    "vn-moi": "/v1/api/danh-sach/phim-bo",
+    "vn-chieu-rap": "/v1/api/danh-sach/phim-chieu-rap",
+    "vn-thuyet-minh": "/v1/api/danh-sach/phim-thuyet-minh",
 }
 
 KK_COUNTRY_FILTER: dict[str, str] = {
     "vn-trung-quoc": "trung-quoc",
     "vn-han-quoc": "han-quoc",
+    "vn-au-my": "au-my",
 }
 
 KK_GENRE_SLUG: dict[str, str] = {

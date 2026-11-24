@@ -11,7 +11,6 @@ from config_store import config_store
 from providers.base import CatalogItem, StreamServer
 from providers.kkphim import KKPhimApiProvider
 from providers.motchill import MotchillProvider
-from providers.nguonc import NguonCProvider
 
 
 def normalize_title(text: str) -> str:
@@ -38,11 +37,11 @@ def _extract_ep_num(ep_slug: str | None) -> int | None:
 
 
 class SourceAggregator:
-    """Điều phối đa nguồn (KKPhim, OPhim, NguonC, MotchillV, MotchillTi), lọc trùng lặp & gộp stream."""
+    """Điều phối đa nguồn (MotchillV, MotchillTi, OPhim), lọc trùng lặp & gộp stream."""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
-        self.providers: dict[str, KKPhimApiProvider | MotchillProvider | NguonCProvider] = {}
+        self.providers: dict[str, KKPhimApiProvider | MotchillProvider] = {}
         self._sync_providers()
 
     def _sync_providers(self) -> None:
@@ -53,9 +52,6 @@ class SourceAggregator:
             if ptype == "kkphim_api":
                 if not isinstance(existing, KKPhimApiProvider):
                     self.providers[sid] = KKPhimApiProvider(sid, self.client)
-            elif ptype == "nguonc_api":
-                if not isinstance(existing, NguonCProvider):
-                    self.providers[sid] = NguonCProvider(sid, self.client)
             else:
                 if not isinstance(existing, MotchillProvider):
                     self.providers[sid] = MotchillProvider(sid, self.client)
@@ -69,7 +65,7 @@ class SourceAggregator:
         for p in self.providers.values():
             p.clear_cache()
 
-    def active_providers(self) -> list[KKPhimApiProvider | MotchillProvider | NguonCProvider]:
+    def active_providers(self) -> list[KKPhimApiProvider | MotchillProvider]:
         self._sync_providers()
         return [p for p in self.providers.values() if p.enabled]
 
@@ -89,9 +85,12 @@ class SourceAggregator:
         search: str | None = None,
         genre: str | None = None,
         skip: int = 0,
+        allowed_sources: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Lấy danh mục/tìm kiếm song song từ tất cả các nguồn đang bật và loại trừ phim trùng lặp."""
         provs = self.active_providers()
+        if allowed_sources is not None:
+            provs = [p for p in provs if p.source_id in allowed_sources]
         if not provs:
             return []
 
@@ -238,6 +237,7 @@ class SourceAggregator:
         item_id: str,
         *,
         content_type: str = "series",
+        allowed_sources: set[str] | None = None,
     ) -> list[StreamServer]:
         """Tổng hợp song song server phát từ TẤT CẢ các nguồn đang bật cho cùng 1 phim/tập và loại bỏ link trùng."""
         self._sync_providers()
@@ -256,6 +256,8 @@ class SourceAggregator:
             return []
 
         provs = self.active_providers()
+        if allowed_sources is not None:
+            provs = [p for p in provs if p.source_id in allowed_sources]
         if not provs:
             return []
 
