@@ -9,9 +9,9 @@ import httpx
 
 from config_store import config_store
 from providers.base import CatalogItem, StreamServer
-from providers.fmovies import FMoviesProvider
 from providers.kkphim import KKPhimApiProvider
 from providers.motchill import MotchillProvider
+from providers.nguonc import NguonCProvider
 
 
 def normalize_title(text: str) -> str:
@@ -38,11 +38,11 @@ def _extract_ep_num(ep_slug: str | None) -> int | None:
 
 
 class SourceAggregator:
-    """Điều phối đa nguồn (KKPhim, OPhim, MotchillV, MotchillTi, FMovies), lọc trùng lặp & gộp stream."""
+    """Điều phối đa nguồn (KKPhim, OPhim, NguonC, MotchillV, MotchillTi), lọc trùng lặp & gộp stream."""
 
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
-        self.providers: dict[str, KKPhimApiProvider | MotchillProvider | FMoviesProvider] = {}
+        self.providers: dict[str, KKPhimApiProvider | MotchillProvider | NguonCProvider] = {}
         self._sync_providers()
 
     def _sync_providers(self) -> None:
@@ -53,9 +53,9 @@ class SourceAggregator:
             if ptype == "kkphim_api":
                 if not isinstance(existing, KKPhimApiProvider):
                     self.providers[sid] = KKPhimApiProvider(sid, self.client)
-            elif ptype == "fmovies":
-                if not isinstance(existing, FMoviesProvider):
-                    self.providers[sid] = FMoviesProvider(sid, self.client)
+            elif ptype == "nguonc_api":
+                if not isinstance(existing, NguonCProvider):
+                    self.providers[sid] = NguonCProvider(sid, self.client)
             else:
                 if not isinstance(existing, MotchillProvider):
                     self.providers[sid] = MotchillProvider(sid, self.client)
@@ -69,7 +69,7 @@ class SourceAggregator:
         for p in self.providers.values():
             p.clear_cache()
 
-    def active_providers(self) -> list[KKPhimApiProvider | MotchillProvider | FMoviesProvider]:
+    def active_providers(self) -> list[KKPhimApiProvider | MotchillProvider | NguonCProvider]:
         self._sync_providers()
         return [p for p in self.providers.values() if p.enabled]
 
@@ -92,10 +92,6 @@ class SourceAggregator:
     ) -> list[dict[str, Any]]:
         """Lấy danh mục/tìm kiếm song song từ tất cả các nguồn đang bật và loại trừ phim trùng lặp."""
         provs = self.active_providers()
-        if catalog_id.startswith("fmovies-"):
-            provs = [p for p in provs if isinstance(p, FMoviesProvider)]
-        else:
-            provs = [p for p in provs if not isinstance(p, FMoviesProvider)]
         if not provs:
             return []
 
@@ -209,19 +205,11 @@ class SourceAggregator:
             primary_meta = await primary.get_meta(content_type, slug)
 
         # Nếu là phim bộ mà nguồn chính chưa có tập (vd: "Sắp chiếu") hoặc bị lỗi -> lấy bổ sung từ các nguồn khác!
-        need_fallback = (
-            not isinstance(primary, FMoviesProvider)
-            and (
-                primary_meta is None
-                or (content_type == "series" and not primary_meta.get("videos"))
-            )
+        need_fallback = primary_meta is None or (
+            content_type == "series" and not primary_meta.get("videos")
         )
         if need_fallback:
-            other_provs = [
-                p
-                for sid, p in self.providers.items()
-                if sid != source_id and p.enabled and not isinstance(p, FMoviesProvider)
-            ]
+            other_provs = [p for sid, p in self.providers.items() if sid != source_id and p.enabled]
             if other_provs:
                 other_results = await asyncio.gather(
                     *(p.get_meta(content_type, slug) for p in other_provs),
@@ -254,79 +242,28 @@ class SourceAggregator:
         """Tổng hợp song song server phát từ TẤT CẢ các nguồn đang bật cho cùng 1 phim/tập và loại bỏ link trùng."""
         self._sync_providers()
 
+        if item_id.startswith(("tt", "tmdb:")):
+            from providers.external_id import resolve_external_to_slug
+
+            slug, ep_num = await resolve_external_to_slug(self.client, content_type, item_id)
+            source_id = ""
+            ep_slug = None
+        else:
+            source_id, slug, ep_slug = self._parse_id(item_id)
+            ep_num = _extract_ep_num(ep_slug)
+
+        if not slug:
+            return []
+
         provs = self.active_providers()
         if not provs:
             return []
 
         tasks = []
-        if item_id.startswith(("tt", "tmdb:")):
-            from providers.external_id import resolve_external_to_slug, resolve_external_to_tmdb
-
-            vn_provs = [p for p in provs if not isinstance(p, FMoviesProvider)]
-            fm_provs = [p for p in provs if isinstance(p, FMoviesProvider)]
-
-            slug_res, tmdb_res = await asyncio.gather(
-                resolve_external_to_slug(self.client, content_type, item_id) if vn_provs else asyncio.sleep(0, result=("", None)),
-                resolve_external_to_tmdb(self.client, content_type, item_id) if fm_provs else asyncio.sleep(0, result=("", None, None)),
-            )
-            slug, ep_num = slug_res
-            tmdb_id, season, episode = tmdb_res
-
-            if slug:
-                for prov in vn_provs:
-                    tasks.append(prov.get_streams_for_slug(slug, ep_slug=None, ep_num=ep_num))
-            if tmdb_id:
-                for prov in fm_provs:
-                    tasks.append(
-                        prov.get_streams_for_tmdb(
-                            content_type,
-                            tmdb_id,
-                            season=season,
-                            episode=episode,
-                        )
-                    )
-        else:
-            source_id, slug, ep_slug = self._parse_id(item_id)
-            if not slug:
-                return []
-            primary = self.providers.get(source_id)
-            if isinstance(primary, FMoviesProvider):
-                from providers.fmovies import _extract_tmdb_id, _parse_season_episode
-
-                if primary.enabled:
-                    tasks.append(
-                        primary.get_streams_for_slug(
-                            slug,
-                            ep_slug=ep_slug,
-                            ep_num=_extract_ep_num(ep_slug),
-                            content_type=content_type,
-                        )
-                    )
-                # Gộp thêm nguồn Việt (KKPhim/OPhim/Motchill) theo TMDB ID nếu có
-                tmdb_id = _extract_tmdb_id(slug)
-                vn_provs = [p for p in provs if not isinstance(p, FMoviesProvider)]
-                if tmdb_id and vn_provs:
-                    from providers.external_id import resolve_external_to_slug
-
-                    if content_type == "series":
-                        sn, en = _parse_season_episode(ep_slug)
-                        ext_key = f"tmdb:{tmdb_id}:{sn}:{en}"
-                    else:
-                        ext_key = f"tmdb:{tmdb_id}"
-                    vn_slug, vn_ep = await resolve_external_to_slug(self.client, content_type, ext_key)
-                    if vn_slug:
-                        for prov in vn_provs:
-                            tasks.append(prov.get_streams_for_slug(vn_slug, ep_slug=None, ep_num=vn_ep))
-            else:
-                ep_num = _extract_ep_num(ep_slug)
-                for prov in provs:
-                    if isinstance(prov, FMoviesProvider):
-                        continue
-                    use_ep_slug = ep_slug if prov.source_id == source_id else None
-                    tasks.append(prov.get_streams_for_slug(slug, ep_slug=use_ep_slug, ep_num=ep_num))
-
-        if not tasks:
-            return []
+        for prov in provs:
+            # Nguồn chính dùng đúng ep_slug; các nguồn phụ khớp theo cùng slug + số tập ep_num
+            use_ep_slug = ep_slug if prov.source_id == source_id else None
+            tasks.append(prov.get_streams_for_slug(slug, ep_slug=use_ep_slug, ep_num=ep_num))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
