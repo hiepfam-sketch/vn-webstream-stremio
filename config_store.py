@@ -13,20 +13,6 @@ import httpx
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 
 DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
-    "kkphim": {
-        "enabled": True,
-        "type": "kkphim_api",
-        "name": "KKPhim",
-        "base_url": "https://phimapi.com",
-        "fallback_urls": [],
-    },
-    "ophim": {
-        "enabled": True,
-        "type": "kkphim_api",
-        "name": "OPhim",
-        "base_url": "https://ophim1.com",
-        "fallback_urls": [],
-    },
     "motchillv": {
         "enabled": True,
         "type": "motchill",
@@ -41,11 +27,11 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         "base_url": "https://motchillti.mx",
         "fallback_urls": [],
     },
-    "nguonc": {
+    "ophim": {
         "enabled": True,
-        "type": "nguonc_api",
-        "name": "NguonC",
-        "base_url": "https://phim.nguonc.com",
+        "type": "kkphim_api",
+        "name": "OPhim",
+        "base_url": "https://ophim1.com",
         "fallback_urls": [],
     },
 }
