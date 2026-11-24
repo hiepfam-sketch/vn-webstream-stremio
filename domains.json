@@ -30,6 +30,13 @@
       "name": "MotchillTi",
       "base_url": "https://motchillti.mx",
       "fallback_urls": []
+    },
+    "fmovies": {
+      "enabled": true,
+      "type": "fmovies",
+      "name": "FMovies",
+      "base_url": "https://www.f-moviess.org",
+      "fallback_urls": []
     }
   }
 }

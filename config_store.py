@@ -41,6 +41,13 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         "base_url": "https://motchillti.mx",
         "fallback_urls": [],
     },
+    "fmovies": {
+        "enabled": True,
+        "type": "fmovies",
+        "name": "FMovies",
+        "base_url": "https://www.f-moviess.org",
+        "fallback_urls": [],
+    },
 }
 
 DEFAULT_CONFIG: dict[str, Any] = {

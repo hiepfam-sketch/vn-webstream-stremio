@@ -17,6 +17,7 @@ from starlette.routing import Route
 
 from config_store import config_store
 from providers.aggregator import SourceAggregator
+from providers.fmovies import FMOVIES_GENRE_MAP
 from providers.motchill import GENRE_MAP
 from resolvers.hls import (
     DESKTOP_UA,
@@ -78,13 +79,65 @@ def _build_manifest() -> dict[str, Any]:
         if s.get("enabled")
     ]
     genre_options = [g for g in GENRE_MAP.keys() if g != "Hoạt Hình"]
+    fmovies_genre_options = list(FMOVIES_GENRE_MAP.keys())
+    catalogs: list[dict[str, Any]] = [
+        {
+            "type": "series",
+            "id": "vn-trung-quoc",
+            "name": "VN Stream • Phim Trung Quốc",
+            "extra": [
+                {"name": "search", "isRequired": False},
+                {"name": "genre", "isRequired": False, "options": genre_options},
+                {"name": "skip", "isRequired": False},
+            ],
+        },
+        {
+            "type": "series",
+            "id": "vn-han-quoc",
+            "name": "VN Stream • Phim Hàn Quốc",
+            "extra": [
+                {"name": "search", "isRequired": False},
+                {"name": "genre", "isRequired": False, "options": genre_options},
+                {"name": "skip", "isRequired": False},
+            ],
+        },
+    ]
+    if any(
+        s.get("type") == "fmovies" and s.get("enabled")
+        for s in cfg.get("sources", {}).values()
+    ):
+        catalogs.extend(
+            [
+                {
+                    "type": "movie",
+                    "id": "fmovies-movies",
+                    "name": "FMovies • Phim Lẻ",
+                    "extra": [
+                        {"name": "search", "isRequired": False},
+                        {"name": "genre", "isRequired": False, "options": fmovies_genre_options},
+                        {"name": "skip", "isRequired": False},
+                    ],
+                },
+                {
+                    "type": "series",
+                    "id": "fmovies-series",
+                    "name": "FMovies • Phim Bộ",
+                    "extra": [
+                        {"name": "search", "isRequired": False},
+                        {"name": "genre", "isRequired": False, "options": fmovies_genre_options},
+                        {"name": "skip", "isRequired": False},
+                    ],
+                },
+            ]
+        )
+
     return {
         "id": "vn.webstream.multisource",
-        "version": "2.3.0",
+        "version": "2.4.0",
         "name": addon_name,
         "description": (
-            f"Phim Trung Quốc & Hàn Quốc phát trực tiếp HTTP HLS trên Stremio/Nuvio từ {len(enabled_names)} nguồn "
-            f"({', '.join(enabled_names)}) — lọc trùng, bỏ hoạt hình, hỗ trợ khớp IMDb (tt) & TMDB."
+            f"Phim Trung Quốc, Hàn Quốc & Quốc tế (FMovies) phát trực tiếp HTTP HLS trên Stremio/Nuvio từ {len(enabled_names)} nguồn "
+            f"({', '.join(enabled_names)}) — lọc trùng, hỗ trợ khớp IMDb (tt) & TMDB."
         ),
         "types": ["movie", "series"],
         "resources": [
@@ -101,28 +154,7 @@ def _build_manifest() -> dict[str, Any]:
             },
         ],
         "idPrefixes": ["vn:", "motchill:", "tt", "tmdb:"],
-        "catalogs": [
-            {
-                "type": "series",
-                "id": "vn-trung-quoc",
-                "name": "VN Stream • Phim Trung Quốc",
-                "extra": [
-                    {"name": "search", "isRequired": False},
-                    {"name": "genre", "isRequired": False, "options": genre_options},
-                    {"name": "skip", "isRequired": False},
-                ],
-            },
-            {
-                "type": "series",
-                "id": "vn-han-quoc",
-                "name": "VN Stream • Phim Hàn Quốc",
-                "extra": [
-                    {"name": "search", "isRequired": False},
-                    {"name": "genre", "isRequired": False, "options": genre_options},
-                    {"name": "skip", "isRequired": False},
-                ],
-            },
-        ],
+        "catalogs": catalogs,
         "behaviorHints": {
             "configurable": True,
             "configurationRequired": False,
@@ -454,8 +486,8 @@ CONFIG_HTML = """<!DOCTYPE html>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>🎬 VN WebStream — Stremio Multi-Source Addon (v2.0)</h1>
-      <p class="sub">Tổng hợp nhiều nguồn phim (KKPhim, OPhim, MotchillV, MotchillTi), tự động lọc phim trùng lặp và gộp nhiều server phát trực tiếp trên Stremio.</p>
+      <h1>🎬 VN WebStream — Stremio Multi-Source Addon (v2.4)</h1>
+      <p class="sub">Tổng hợp nhiều nguồn phim (KKPhim, OPhim, MotchillV, MotchillTi, FMovies), tự động lọc phim trùng lặp và gộp nhiều server phát trực tiếp trên Stremio.</p>
       <div id="sourcesContainer"></div>
       <div id="adminPwBox" style="display:__ADMIN_PW_DISPLAY__; margin-top:12px;">
         <label for="adminPw">🔐 Mật khẩu quản trị (ADMIN_PASSWORD)</label>
