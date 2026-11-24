@@ -270,17 +270,43 @@ async def _resolve_one(
         link = unquote(qs["url"][0])
         host = urlparse(link).netloc.lower()
 
-    # 1. Direct M3U8 (ví dụ: KKPhim, OPhim, cachevideo.com, motchillti TOP #1...)
+    # 0. Direct MP4/MKV file (ví dụ: FMovies / VidZee direct file)
+    if sv.server_type == "direct_file":
+        req_headers = {"User-Agent": DESKTOP_UA}
+        if sv.referer:
+            req_headers["Referer"] = sv.referer
+        if sv.headers:
+            req_headers.update(sv.headers)
+        try:
+            r = await client.head(link, headers=req_headers, timeout=8)
+            if r.status_code in (200, 206, 302, 405):
+                return ResolvedStream(
+                    name=f"{src}\n{sv.label}",
+                    title=f"Direct Video ({host})",
+                    url=link,
+                    not_web_ready=bool(sv.headers),
+                    headers=req_headers if sv.headers else None,
+                )
+        except Exception:
+            return None
+        return None
+
+    # 1. Direct M3U8 (ví dụ: KKPhim, OPhim, cachevideo.com, motchillti TOP #1, FMovies/VidNest...)
     if sv.server_type == "m3u8" or ".m3u8" in link.lower():
+        req_headers = {"User-Agent": DESKTOP_UA}
+        if sv.referer:
+            req_headers["Referer"] = sv.referer
+        if sv.headers:
+            req_headers.update(sv.headers)
         try:
             r = await client.get(
                 link,
-                headers={"User-Agent": DESKTOP_UA, "Referer": sv.referer},
+                headers=req_headers,
                 timeout=8,
             )
             if r.status_code == 200 and "#EXTM3U" in r.text[:200]:
                 if any(ext in r.text for ext in (".png", ".jpg", ".jpeg", ".image")):
-                    proxy_u = build_proxy_url(addon_base, "/hls/raw.m3u8", link, sv.referer)
+                    proxy_u = build_proxy_url(addon_base, "/hls/raw.m3u8", link, req_headers.get("Referer", sv.referer))
                     return ResolvedStream(
                         name=f"{src}\n{sv.label}",
                         title=f"HLS Proxy ({host})",
@@ -290,6 +316,8 @@ async def _resolve_one(
                     name=f"{src}\n{sv.label}",
                     title=f"Direct HLS ({host})",
                     url=link,
+                    not_web_ready=bool(sv.headers),
+                    headers=req_headers if sv.headers else None,
                 )
         except Exception:
             return None
@@ -358,6 +386,31 @@ async def _resolve_one(
                     return ResolvedStream(
                         name=f"{src}\n{sv.label}",
                         title=f"CloudBeta HD ({host})",
+                        url=proxy_u,
+                    )
+        except Exception:
+            return None
+        return None
+
+    # 3b. StreamVSMov embed (v*.streamvsmov.com/video/<hash>)
+    if "streamvsmov." in host:
+        try:
+            parsed = urlparse(link)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            parts = [p for p in parsed.path.strip("/").split("/") if p]
+            vhash = parts[-1] if parts else ""
+            if vhash:
+                master_url = f"{origin}/stream/{vhash}/master.m3u8"
+                chk = await client.get(
+                    master_url,
+                    headers={"User-Agent": DESKTOP_UA, "Referer": origin + "/"},
+                    timeout=10,
+                )
+                if chk.status_code == 200 and "#EXTM3U" in chk.text[:200]:
+                    proxy_u = build_proxy_url(addon_base, "/hls/raw.m3u8", master_url, origin + "/")
+                    return ResolvedStream(
+                        name=f"{src}\n{sv.label}",
+                        title=f"VSMov HD ({host})",
                         url=proxy_u,
                     )
         except Exception:
