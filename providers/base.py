@@ -12,6 +12,7 @@ class StreamServer:
     referer: str
     source_name: str = ""
     headers: dict[str, str] = field(default_factory=dict)
+    skip_verify: bool = False
 
 
 @dataclass

@@ -59,6 +59,8 @@ VIDNEST_SUBSERVERS: list[tuple[str, str]] = [
     ("flixhq", "Beta HD"),
     ("yflix", "Catflix HD"),
     ("vidzee", "Gama Direct"),
+    ("rogflix", "Filxer HD"),
+    ("allmovies", "Delta HD"),
 ]
 
 
@@ -519,10 +521,14 @@ class FMoviesProvider:
             "User-Agent": DEFAULT_HEADERS["User-Agent"],
             "Origin": VIDNEST_ORIGIN,
             "Referer": VIDNEST_ORIGIN + "/",
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
         }
         try:
-            resp = await self.client.get(url, headers=headers, timeout=10)
+            resp = await self.client.get(url, headers=headers, timeout=12)
             if resp.status_code != 200:
                 return []
             raw_json = resp.json()
@@ -543,6 +549,8 @@ class FMoviesProvider:
         raw_streams: list[dict[str, Any]] = []
         if isinstance(dec.get("streams"), list):
             raw_streams.extend(s for s in dec["streams"] if isinstance(s, dict))
+        if isinstance(dec.get("sources"), list):
+            raw_streams.extend(s for s in dec["sources"] if isinstance(s, dict))
         if dec.get("url"):
             raw_streams.append(dec)
 
@@ -573,6 +581,7 @@ class FMoviesProvider:
                     referer=referer,
                     source_name=self.display_name,
                     headers=clean_headers,
+                    skip_verify=True,
                 )
             )
         return servers

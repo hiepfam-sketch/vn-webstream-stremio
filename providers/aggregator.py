@@ -291,6 +291,8 @@ class SourceAggregator:
                 return []
             primary = self.providers.get(source_id)
             if isinstance(primary, FMoviesProvider):
+                from providers.fmovies import _extract_tmdb_id, _parse_season_episode
+
                 if primary.enabled:
                     tasks.append(
                         primary.get_streams_for_slug(
@@ -300,6 +302,21 @@ class SourceAggregator:
                             content_type=content_type,
                         )
                     )
+                # Gộp thêm nguồn Việt (KKPhim/OPhim/Motchill) theo TMDB ID nếu có
+                tmdb_id = _extract_tmdb_id(slug)
+                vn_provs = [p for p in provs if not isinstance(p, FMoviesProvider)]
+                if tmdb_id and vn_provs:
+                    from providers.external_id import resolve_external_to_slug
+
+                    if content_type == "series":
+                        sn, en = _parse_season_episode(ep_slug)
+                        ext_key = f"tmdb:{tmdb_id}:{sn}:{en}"
+                    else:
+                        ext_key = f"tmdb:{tmdb_id}"
+                    vn_slug, vn_ep = await resolve_external_to_slug(self.client, content_type, ext_key)
+                    if vn_slug:
+                        for prov in vn_provs:
+                            tasks.append(prov.get_streams_for_slug(vn_slug, ep_slug=None, ep_num=vn_ep))
             else:
                 ep_num = _extract_ep_num(ep_slug)
                 for prov in provs:
