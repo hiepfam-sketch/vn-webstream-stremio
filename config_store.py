@@ -41,11 +41,11 @@ DEFAULT_SOURCES: dict[str, dict[str, Any]] = {
         "base_url": "https://motchillti.mx",
         "fallback_urls": [],
     },
-    "fmovies": {
+    "nguonc": {
         "enabled": True,
-        "type": "fmovies",
-        "name": "FMovies",
-        "base_url": "https://www.f-moviess.org",
+        "type": "nguonc_api",
+        "name": "NguonC",
+        "base_url": "https://phim.nguonc.com",
         "fallback_urls": [],
     },
 }

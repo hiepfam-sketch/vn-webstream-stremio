@@ -17,7 +17,6 @@ from starlette.routing import Route
 
 from config_store import config_store
 from providers.aggregator import SourceAggregator
-from providers.fmovies import FMOVIES_GENRE_MAP
 from providers.motchill import GENRE_MAP
 from resolvers.hls import (
     DESKTOP_UA,
@@ -79,65 +78,13 @@ def _build_manifest() -> dict[str, Any]:
         if s.get("enabled")
     ]
     genre_options = [g for g in GENRE_MAP.keys() if g != "Hoạt Hình"]
-    fmovies_genre_options = list(FMOVIES_GENRE_MAP.keys())
-    catalogs: list[dict[str, Any]] = [
-        {
-            "type": "series",
-            "id": "vn-trung-quoc",
-            "name": "VN Stream • Phim Trung Quốc",
-            "extra": [
-                {"name": "search", "isRequired": False},
-                {"name": "genre", "isRequired": False, "options": genre_options},
-                {"name": "skip", "isRequired": False},
-            ],
-        },
-        {
-            "type": "series",
-            "id": "vn-han-quoc",
-            "name": "VN Stream • Phim Hàn Quốc",
-            "extra": [
-                {"name": "search", "isRequired": False},
-                {"name": "genre", "isRequired": False, "options": genre_options},
-                {"name": "skip", "isRequired": False},
-            ],
-        },
-    ]
-    if any(
-        s.get("type") == "fmovies" and s.get("enabled")
-        for s in cfg.get("sources", {}).values()
-    ):
-        catalogs.extend(
-            [
-                {
-                    "type": "movie",
-                    "id": "fmovies-movies",
-                    "name": "FMovies • Phim Lẻ",
-                    "extra": [
-                        {"name": "search", "isRequired": False},
-                        {"name": "genre", "isRequired": False, "options": fmovies_genre_options},
-                        {"name": "skip", "isRequired": False},
-                    ],
-                },
-                {
-                    "type": "series",
-                    "id": "fmovies-series",
-                    "name": "FMovies • Phim Bộ",
-                    "extra": [
-                        {"name": "search", "isRequired": False},
-                        {"name": "genre", "isRequired": False, "options": fmovies_genre_options},
-                        {"name": "skip", "isRequired": False},
-                    ],
-                },
-            ]
-        )
-
     return {
         "id": "vn.webstream.multisource",
-        "version": "2.4.0",
+        "version": "2.5.0",
         "name": addon_name,
         "description": (
-            f"Phim Trung Quốc, Hàn Quốc & Quốc tế (FMovies) phát trực tiếp HTTP HLS trên Stremio/Nuvio từ {len(enabled_names)} nguồn "
-            f"({', '.join(enabled_names)}) — lọc trùng, hỗ trợ khớp IMDb (tt) & TMDB."
+            f"Phim Trung Quốc & Hàn Quốc phát trực tiếp HTTP HLS trên Stremio/Nuvio từ {len(enabled_names)} nguồn "
+            f"({', '.join(enabled_names)}) — lọc trùng, bỏ hoạt hình, hỗ trợ khớp IMDb (tt) & TMDB."
         ),
         "types": ["movie", "series"],
         "resources": [
@@ -154,7 +101,28 @@ def _build_manifest() -> dict[str, Any]:
             },
         ],
         "idPrefixes": ["vn:", "motchill:", "tt", "tmdb:"],
-        "catalogs": catalogs,
+        "catalogs": [
+            {
+                "type": "series",
+                "id": "vn-trung-quoc",
+                "name": "VN Stream • Phim Trung Quốc",
+                "extra": [
+                    {"name": "search", "isRequired": False},
+                    {"name": "genre", "isRequired": False, "options": genre_options},
+                    {"name": "skip", "isRequired": False},
+                ],
+            },
+            {
+                "type": "series",
+                "id": "vn-han-quoc",
+                "name": "VN Stream • Phim Hàn Quốc",
+                "extra": [
+                    {"name": "search", "isRequired": False},
+                    {"name": "genre", "isRequired": False, "options": genre_options},
+                    {"name": "skip", "isRequired": False},
+                ],
+            },
+        ],
         "behaviorHints": {
             "configurable": True,
             "configurationRequired": False,
@@ -419,59 +387,6 @@ async def api_sync_remote(_request: Request) -> JSONResponse:
     return JSONResponse(res)
 
 
-async def api_debug_fmovies(request: Request) -> JSONResponse:
-    """Chẩn đoán kết nối từ server tới từng sub-server của FMovies/VidNest."""
-    assert http_client is not None
-    from providers.fmovies import (
-        DEFAULT_HEADERS,
-        VIDNEST_API_BASE,
-        VIDNEST_DEFAULT_SECRET,
-        VIDNEST_ORIGIN,
-        VIDNEST_SUBSERVERS,
-        _decrypt_vidnest_payload,
-        _make_nonce,
-    )
-
-    tmdb_id = (request.query_params.get("id") or "533535").strip()
-    if not tmdb_id.isdigit():
-        return JSONResponse({"ok": False, "error": "Invalid TMDB id"}, status_code=400)
-
-    headers = {
-        "User-Agent": DEFAULT_HEADERS["User-Agent"],
-        "Origin": VIDNEST_ORIGIN,
-        "Referer": VIDNEST_ORIGIN + "/",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-site",
-    }
-    report: dict[str, Any] = {}
-    for sub_id, sub_label in VIDNEST_SUBSERVERS:
-        url = f"{VIDNEST_API_BASE}/{sub_id}/movie/{tmdb_id}?_n={_make_nonce()}"
-        try:
-            r = await http_client.get(url, headers=headers, timeout=10)
-            entry: dict[str, Any] = {"label": sub_label, "status": r.status_code}
-            if r.status_code == 200:
-                try:
-                    dec = _decrypt_vidnest_payload(r.json(), VIDNEST_DEFAULT_SECRET)
-                    has_url = bool(
-                        isinstance(dec, dict)
-                        and (dec.get("url") or dec.get("streams") or dec.get("sources"))
-                    )
-                    entry["decrypted"] = True
-                    entry["has_stream"] = has_url
-                except Exception as exc:
-                    entry["decrypted"] = False
-                    entry["decrypt_error"] = str(exc)
-            else:
-                entry["snippet"] = r.text[:160]
-            report[sub_id] = entry
-        except Exception as exc:
-            report[sub_id] = {"label": sub_label, "error": str(exc)}
-    return JSONResponse({"tmdb_id": tmdb_id, "results": report})
-
-
 CONFIG_HTML = """<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -539,8 +454,8 @@ CONFIG_HTML = """<!DOCTYPE html>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>🎬 VN WebStream — Stremio Multi-Source Addon (v2.4)</h1>
-      <p class="sub">Tổng hợp nhiều nguồn phim (KKPhim, OPhim, MotchillV, MotchillTi, FMovies), tự động lọc phim trùng lặp và gộp nhiều server phát trực tiếp trên Stremio.</p>
+      <h1>🎬 VN WebStream — Stremio Multi-Source Addon (v2.5)</h1>
+      <p class="sub">Tổng hợp nhiều nguồn phim (KKPhim, OPhim, NguonC, MotchillV, MotchillTi), tự động lọc phim trùng lặp và gộp nhiều server phát trực tiếp trên Stremio.</p>
       <div id="sourcesContainer"></div>
       <div id="adminPwBox" style="display:__ADMIN_PW_DISPLAY__; margin-top:12px;">
         <label for="adminPw">🔐 Mật khẩu quản trị (ADMIN_PASSWORD)</label>
@@ -718,7 +633,6 @@ routes = [
     Route("/api/config", api_update_config, methods=["POST"]),
     Route("/api/check", api_check_url, methods=["POST"]),
     Route("/api/sync-remote", api_sync_remote, methods=["POST"]),
-    Route("/api/debug/fmovies", api_debug_fmovies, methods=["GET"]),
 ]
 
 app = Starlette(debug=False, routes=routes, lifespan=lifespan)
