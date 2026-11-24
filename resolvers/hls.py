@@ -277,6 +277,14 @@ async def _resolve_one(
             req_headers["Referer"] = sv.referer
         if sv.headers:
             req_headers.update(sv.headers)
+        if sv.skip_verify:
+            return ResolvedStream(
+                name=f"{src}\n{sv.label}",
+                title=f"Direct Video ({host})",
+                url=link,
+                not_web_ready=bool(sv.headers),
+                headers=req_headers if sv.headers else None,
+            )
         try:
             r = await client.head(link, headers=req_headers, timeout=8)
             if r.status_code in (200, 206, 302, 405):
@@ -298,6 +306,14 @@ async def _resolve_one(
             req_headers["Referer"] = sv.referer
         if sv.headers:
             req_headers.update(sv.headers)
+        if sv.skip_verify:
+            return ResolvedStream(
+                name=f"{src}\n{sv.label}",
+                title=f"Direct HLS ({host})",
+                url=link,
+                not_web_ready=bool(sv.headers),
+                headers=req_headers if sv.headers else None,
+            )
         try:
             r = await client.get(
                 link,
